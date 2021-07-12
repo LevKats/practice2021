@@ -4,7 +4,6 @@ from scipy.fft import fftshift
 
 from pipeline import Pipeline
 
-from preprocessing import get_master_bias
 from preprocessing import bias_pipe
 from preprocessing import mean_frame
 from preprocessing import get_fft_square_magnitude
@@ -88,7 +87,7 @@ def main():
     sigma_ron = 49
     # todo shape, sigma_ron
     pipeline = Pipeline(
-        get_master_bias,
+        mean_frame,
         crop_image_pipe(shape)
     )
     master_bias = process_bias(pipeline)
@@ -108,7 +107,7 @@ def main():
     print("FIT PARAMETERS")
     print("\n".join(
         map(
-            lambda tup: "{} +- {}",
+            lambda tup: "{} +- {}".format(*tup),
             zip(values, np.sqrt(np.diag(errors)))
         )
     ))

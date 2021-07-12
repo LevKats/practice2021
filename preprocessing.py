@@ -5,15 +5,6 @@ from scipy.fft import fft2
 from scipy.fft import fftshift
 
 
-def get_master_bias(bias: np.array) -> np.array:
-    """
-    :param bias: подается трехмерный массив, нужно усреднить
-    :return: усредненный bias, возможно надо найти
-    """
-    # todo
-    pass
-
-
 def crop_image(image: np.array, shape: tuple) -> np.array:
     """
     :param image: изображение

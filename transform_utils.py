@@ -32,12 +32,15 @@ def rotate_z(angle):
     ])
 
 
-def get_xyz(alpha, delta):
+def get_xyz(alpha, delta, is_left=False):
     """
     :param alpha: прямое восхождение, азимут, и т.д.
     :param delta: склонение, высота, и т.д.
+    :param is_left: система левая?
     :return:
     """
+    if is_left:
+        alpha = 2*np.pi - alpha
     x = np.cos(delta) * np.cos(alpha)
     y = np.cos(delta) * np.sin(alpha)
     z = np.sin(delta)
