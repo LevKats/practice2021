@@ -85,17 +85,18 @@ def main():
         return
 
     shape = (512, 512)
+    left_angle = (0, 0)
     sigma_ron = 49
     # todo shape, sigma_ron
     pipeline = Pipeline(
         get_master_bias,
-        crop_image_pipe(shape)
+        crop_image_pipe(left_angle, shape)
     )
     master_bias = process_bias(pipeline)
 
     pipeline = Pipeline(
         mean_frame,
-        crop_image_pipe(shape),
+        crop_image_pipe(left_angle, shape),
         bias_pipe(master_bias),
         disable_weak_pixels_pipe(sigma_ron),
         get_fft_square_magnitude

@@ -14,19 +14,20 @@ def get_master_bias(bias: np.array) -> np.array:
     pass
 
 
-def crop_image(image: np.array, shape: tuple) -> np.array:
+def crop_image(image: np.array, left_angle: tuple, shape: tuple) -> np.array:
     """
     :param image: изображение
+    :param left_angle: левый верхний угол выделяемой области
     :param shape: итоговый размер изображения
     :return: обрезанное изображение указанного размера (нужно для выбора
      луча поляриметра)
     """
     # todo
-    pass
+    return image[]
 
 
-def crop_image_pipe(shape: tuple) -> Callable[[np.array], np.array]:
-    return partial(crop_image, shape=shape)
+def crop_image_pipe(left_angle: tuple, shape: tuple) -> Callable[[np.array], np.array]:
+    return partial(crop_image, left_angle=left_angle, shape=shape)
 
 
 def disable_weak_pixels(image: np.array, sigma_ron: float) -> np.array:
