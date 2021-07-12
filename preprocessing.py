@@ -22,8 +22,10 @@ def crop_image(image: np.array, left_angle: tuple, shape: tuple) -> np.array:
     :return: обрезанное изображение указанного размера (нужно для выбора
      луча поляриметра)
     """
-    # todo
-    return image[]
+    return image[
+        left_angle[0]:left_angle[0] + shape[0],
+        left_angle[1]:left_angle[1] + shape[1]
+    ]
 
 
 def crop_image_pipe(left_angle: tuple, shape: tuple) -> Callable[[np.array], np.array]:
