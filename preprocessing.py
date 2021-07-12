@@ -35,8 +35,7 @@ def disable_weak_pixels(image: np.array, sigma_ron: float) -> np.array:
     :param sigma_ron: дисперсия шума считывания
     :return:
     """
-    # todo
-    pass
+    return (image < 5*sigma_ron)*image
 
 
 def disable_weak_pixels_pipe(sigma_ron: float) -> Callable[[np.array], np.array]:
@@ -49,8 +48,7 @@ def process_bias(frame: np.array, master_bias: np.array) -> np.array:
     :param master_bias: баес
     :return: вычитаем подложку
     """
-    # todo
-    pass
+    return frame - master_bias
 
 
 def mean_frame(frames: np.array) -> np.array:
@@ -58,8 +56,7 @@ def mean_frame(frames: np.array) -> np.array:
     :param frames: кадры
     :return: средний кадр
     """
-    # todo
-    pass
+    return np.mean(frames, axis=0)
 
 
 def get_fft_square_magnitude(frame: np.array) -> np.array:
