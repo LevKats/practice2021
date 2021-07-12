@@ -3,13 +3,15 @@ from collections.abc import Callable
 import numpy as np
 
 
-def model(x_data: np.array, *args) -> np.array:
+def model(x_data: np.array, dx, dy, epsilon, A) -> np.array:
     """
     :param x_data -- двумерный массив (2, M), где x_data[i, j] --
     i-я координата в радиус-векторе точки j
 
-    :param *args -- параметры модели. потом поймем, какие они будут, но
-    к ним можно обращаться как к args[0], args[1], ...
+    :param dx: x координата вектора разделения
+    :param dy: y координата вектора разделения
+    :param epsilon: отношение потоков
+    :param A: нормировочная константа
     :return значение модельного спектра
     """
     # todo

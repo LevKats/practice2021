@@ -14,6 +14,35 @@ def get_master_bias(bias: np.array) -> np.array:
     pass
 
 
+def crop_image(image: np.array, shape: tuple) -> np.array:
+    """
+    :param image: изображение
+    :param shape: итоговый размер изображения
+    :return: обрезанное изображение указанного размера (нужно для выбора
+     луча поляриметра)
+    """
+    # todo
+    pass
+
+
+def crop_image_pipe(shape: tuple) -> Callable[[np.array], np.array]:
+    return partial(crop_image, shape=shape)
+
+
+def disable_weak_pixels(image: np.array, sigma_ron: float) -> np.array:
+    """
+    :param image: усредненное изображение
+    :param sigma_ron: дисперсия шума считывания
+    :return:
+    """
+    # todo
+    pass
+
+
+def disable_weak_pixels_pipe(sigma_ron: float) -> Callable[[np.array], np.array]:
+    return partial(disable_weak_pixels, sigma_ron=sigma_ron)
+
+
 def process_bias(frame: np.array, master_bias: np.array) -> np.array:
     """
     :param frame: кадр
