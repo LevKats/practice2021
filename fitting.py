@@ -14,8 +14,8 @@ def model(x_data: np.array, dx, dy, epsilon, A) -> np.array:
     :param A: нормировочная константа
     :return значение модельного спектра
     """
-    # todo
-    return x_data
+    d = np.array([dx,dy])
+    return A*(1+epsilon**2+2*epsilon*np.cos(2*np.pi*(x_data*d).sum(axis=0)))
 
 
 def fit(x_data: np.array, y_data: np.array, func: Callable[[np.array, ...], np.array]):
