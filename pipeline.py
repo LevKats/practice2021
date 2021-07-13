@@ -9,5 +9,7 @@ class Pipeline:
 
     def __call__(self, array: Sequence[Any]) -> Sequence[Any]:
         for func in self.__functions:
-            array = func(array)
+            temp = func(array)
+            # del array
+            array = temp
         return array
