@@ -3,6 +3,9 @@ from scipy.optimize import curve_fit
 from collections.abc import Callable
 import numpy as np
 
+from constants import MIN_FREQ_MASK
+from constants import MAX_FREQ_MASK
+
 
 def model(x_data: np.array, dx, dy, epsilon, A, fc) -> np.array:
     """
@@ -26,7 +29,8 @@ def model(x_data: np.array, dx, dy, epsilon, A, fc) -> np.array:
             "invalid shape of x_data {}".format(x_data.shape)
         )
     return (A * (1 + epsilon ** 2 + 2 * epsilon * np.cos(2 * np.pi * (x_data * d).sum(axis=0))) *
-            (np.linalg.norm(x_data, axis=0) <= 0.6 * fc) * (np.linalg.norm(x_data, axis=0) >= 0.1 * fc))
+            (np.linalg.norm(x_data, axis=0) <= MAX_FREQ_MASK * fc) *
+            (np.linalg.norm(x_data, axis=0) >= MIN_FREQ_MASK * fc))
 
 
 def fit(x_data: np.array, y_data: np.array, func: Callable[[np.array, ...], np.array], **kwargs):

@@ -3,6 +3,7 @@ from collections.abc import Callable
 from functools import partial
 from scipy.fft import fft2
 from scipy.fft import fftshift
+from scipy.fft import fftfreq
 
 
 def crop_image(image: np.array, left_angle: tuple, shape: tuple) -> np.array:
@@ -87,3 +88,21 @@ def fft_pipe(chunk_size: int, workers: int) -> Callable[[np.array], np.array]:
 
 def bias_pipe(master_bias: np.array) -> Callable[[np.array], np.array]:
     return partial(process_bias, master_bias=master_bias)
+
+
+def photon_noise(spectrum: np.array, freq) -> np.array:
+    x_freq, y_freq = np.meshgrid(
+        fftshift(fftfreq(spectrum.shape[1])),
+        fftshift(fftfreq(spectrum.shape[0]))
+    )
+    freq_arr = np.stack((x_freq, y_freq))
+    mask = np.linalg.norm(freq_arr, axis=0) > freq
+    # avg_noise = (mask * spectrum).sum(axis=1) / mask.sum(axis=1)[::, np.newaxis]  # вдоль строки
+    avg_noise = (mask * spectrum).sum(axis=0) / mask.sum(axis=0)[np.newaxis, ::]  # вдоль столбца
+    # return spectrum - np.minimum(avg_noise, spectrum)
+    return spectrum - avg_noise
+    # return spectrum
+
+
+def photon_pipe(freq: float) -> Callable[[np.array], np.array]:
+    return partial(photon_noise, freq=freq)

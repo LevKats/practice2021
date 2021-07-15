@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.fft import fftfreq
 from scipy.fft import fftshift
+from scipy.fft import ifft2
 
 import matplotlib.pyplot as plt
 
@@ -11,6 +12,17 @@ from preprocessing import mean_frame
 from preprocessing import fft_pipe
 from preprocessing import disable_weak_pixels_pipe
 from preprocessing import crop_image_pipe
+from preprocessing import photon_pipe
+
+from constants import MIN_FREQ_MASK
+from constants import MAX_FREQ_MASK
+from constants import PHOTON_NOISE_FREQ_MASK
+from constants import X_TICK_SIZE
+from constants import Y_TICK_SIZE
+from constants import GRID_LINEWIDTH
+from constants import MIN_POWERSPECTRUM
+from constants import MAX_POWERSPECTRUM
+from constants import MAX_SPECTRUM
 
 # from equatorial import get_psi
 # from equatorial import get_azimuth_height
@@ -19,14 +31,12 @@ from preprocessing import crop_image_pipe
 from fitting import fit
 from fitting import model
 
-# from sys import argv
 import argparse
+from os.path import exists
 from os.path import join
 
 from astropy.io import fits
-# fits.Conf.use_memmap = True
 from astropy.time import Time
-# from astropy.coordinates import Angle
 from astropy import units as u
 
 from functools import partial
@@ -38,6 +48,9 @@ def process_bias(pipeline, args):
     with fits.open(args.bias) as full_fits:
         bias_fits = full_fits[0]
         print("\n" + "="*50)
+        print("METADATA")
+        print(full_fits[1].header.tostring(sep='\n'))
+        print("\n" + "="*50)
         print("BIAS {}".format(args.bias))
         # print(bias_fits.info())
         print("HEADER")
@@ -46,12 +59,48 @@ def process_bias(pipeline, args):
         master_bias = pipeline(bias)
         sigma_ron = full_fits[1].header["RONSIGMA"] / bias_fits.header["SNTVTY"]
         D = full_fits[1].header["APERTURE"]
-        wavelength = full_fits[0].header["DTNWLGTH"] * 10**-9  # todo
+        wavelength = full_fits[1].header["FILTLAM"] * 10**-9  # todo
         del bias
     return master_bias, (sigma_ron, D, wavelength)
 
 
-def process_sci_star(pipeline, args, batch_size=10):
+def process_spectrum(image_fits, batch_size, pipeline, filename, args):
+    if exists(filename):
+        if args.y:
+            st = "yes"
+        elif args.n:
+            st = "no"
+        else:
+            st = input("{} found. Load? yes/no (delault yes) ".format(filename))
+        if st == "yes" or st == "":
+            with np.load(filename) as data:
+                return data["spectrum"]
+    frame = image_fits.data
+    spectrum = None
+    frame_count = frame.shape[0]
+    print("process spectrum...")
+    print(flush=True, end="")
+    for last in tqdm(np.arange(0, frame_count, batch_size), position=0, leave=True):
+        count = min(batch_size, frame_count - last)
+        temp = mean_frame(pipeline(frame[last:last + count:, ::, ::]))
+        if spectrum is None:
+            spectrum = np.zeros((frame_count, temp.shape[-2], temp.shape[-1]), dtype=float)
+        spectrum[last:last + count:, ::, ::] = temp
+    del frame
+    print('Done.')
+    if args.y:
+        st = "yes"
+    elif args.n:
+        st = "no"
+    else:
+        st = input("save spectrum to {}? yes/no (default yes) ".format(filename))
+    mean_spectrum = mean_frame(spectrum)
+    if st == "yes" or st == "":
+        np.savez(filename, spectrum=mean_spectrum)
+    return mean_spectrum
+
+
+def process_sci_star(pipeline, mean_spectrum_pipeline, args, batch_size=10):
     with fits.open(args.sci) as full_fits:
         sci_fits = full_fits[0]
         print("\n" + "=" * 50)
@@ -64,24 +113,12 @@ def process_sci_star(pipeline, args, batch_size=10):
         longitude = u.Quantity(full_fits[1].header["LONGITUD"], unit=u.deg).to(u.rad).value
         alpha = u.Quantity(full_fits[0].header["RA"], unit=u.deg).to(u.rad).value
         delta = u.Quantity(full_fits[0].header["DEC"], unit=u.deg).to(u.rad).value
-        sci = sci_fits.data
-
-        sci_spectrum = None
-        frame_count = sci.shape[0]
-        print("process specturm...")
-        print(flush=True, end="")
-        for last in tqdm(np.arange(0, frame_count, batch_size), position=0, leave=True):
-            count = min(batch_size, frame_count - last)
-            temp = mean_frame(pipeline(sci[last:last + count:, ::, ::]))
-            if sci_spectrum is None:
-                sci_spectrum = np.zeros((frame_count, temp.shape[-2], temp.shape[-1]), dtype=float)
-            sci_spectrum[last:last + count:, ::, ::] = temp
-        del sci
-        print('Done.')
-    return mean_frame(sci_spectrum), ((time, latitude, longitude), (alpha, delta))
+        obj = sci_fits.header["OBJECT"]
+        mean_spectrum = process_spectrum(sci_fits, batch_size, pipeline, join("spectra", obj + ".npz"), args)
+    return mean_spectrum_pipeline(mean_spectrum), ((time, latitude, longitude), (alpha, delta), obj)
 
 
-def process_known_star(pipeline, args, batch_size=10):
+def process_known_star(pipeline, mean_spectrum_pipeline, args, batch_size=10):
     with fits.open(args.cal) as known_fits:
         known_fits = known_fits[0]
         print("\n" + "=" * 50)
@@ -89,24 +126,13 @@ def process_known_star(pipeline, args, batch_size=10):
         # print(known_fits.info())
         print("HEADER")
         print(known_fits.header.tostring(sep='\n'))
-        known = known_fits.data
 
-        known_spectrum = None
-        frame_count = known.shape[0]
-        print("process spectrum...")
-        print(flush=True, end="")
-        for last in tqdm(np.arange(0, frame_count, batch_size), position=0, leave=True):
-            count = min(batch_size, frame_count - last)
-            temp = mean_frame(pipeline(known[last:last + count:, ::, ::]))
-            if known_spectrum is None:
-                known_spectrum = np.zeros((frame_count, temp.shape[-2], temp.shape[-1]), dtype=float)
-            known_spectrum[last:last + count:, ::, ::] = temp
-        del known
-        print('Done.')
-    return mean_frame(known_spectrum)
+        obj = known_fits.header["OBJECT"]
+        mean_spectrum = process_spectrum(known_fits, batch_size, pipeline, join("spectra", obj + ".npz"), args)
+    return mean_spectrum_pipeline(mean_spectrum), obj
 
 
-def obtain_fit_parameters(sci_spectrum, known_spectrum, fc):
+def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     y_data = sci_spectrum / known_spectrum
     y_size, x_size = y_data.shape
     x_freq, y_freq = np.meshgrid(
@@ -114,21 +140,50 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc):
         fftshift(fftfreq(y_size))
     )
     x_data = np.vstack((x_freq.flatten(), y_freq.flatten()))
-    print(y_data.min(), y_data.max())
-    return fit(
-        x_data[::, ::500],
-        ((y_data.flatten() * (np.linalg.norm(x_data, axis=0) <= 0.6 * fc)
-          * (np.linalg.norm(x_data, axis=0) >= 0.1 * fc)))[::500],
+    freqs = np.stack((x_freq, y_freq))
+    mask = ((np.linalg.norm(freqs, axis=0) <= MAX_FREQ_MASK * fc) *
+            (np.linalg.norm(freqs, axis=0) >= MIN_FREQ_MASK * fc))
+
+    inv = fftshift(ifft2(mask * y_data))
+    # fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    # ax.set_xticks(np.arange(0, 256)[::10])
+    # ax.set_xticklabels(np.arange(-128, 128)[::10])
+    # ax.set_yticks(np.arange(0, 256)[::10])
+    # ax.set_yticklabels(np.arange(-128, 128)[::10])
+    # ax.imshow(np.abs(inv))
+    # plt.show()
+    p0_mask = np.ones_like(inv)
+    p0_mask[
+    p0_mask.shape[0] // 2 - p0_mask_radius:p0_mask.shape[0] // 2 + p0_mask_radius:,
+    p0_mask.shape[1] // 2 - p0_mask_radius:p0_mask.shape[1] // 2 + p0_mask_radius:
+    ] = 0
+    dy, dx = np.unravel_index(np.argmax(inv * p0_mask, axis=None), inv.shape)
+    dy -= inv.shape[0] // 2
+    dx -= inv.shape[1] // 2
+    A = (mask * y_data).max()
+
+    # print(y_data.min(), y_data.max())
+    values, errors = fit(
+        x_data[::, ::],
+        (y_data * mask).flatten()[::],
         partial(model, fc=fc),
-        p0=(10, -10, 0.5*(y_data.max() - y_data.min()) / y_data.max(), 0.5*y_data.max()),
-        maxfev=500000,
+        p0=(-dx, -dy, 0.5, A),
+        # maxfev=500000,
         # nfev=100000,
         # bounds=([-1.0, -1.0, 0, 0.1 * y_data.max()], [1.0, 1.0, 1.0, y_data.max()]),
     )
+    # return (25, -2, 0.5, 2.), errors
+    return values, errors
 
 
-def plot_spectrum(sci_spectrum, known_spectrum, func, out_path):
-    y_data = sci_spectrum / known_spectrum
+def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc):
+    y_data = (sci_spectrum / known_spectrum)
+
+    # fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    # ax.plot(y_data[y_data.shape[0]//2, ::])
+    # ax.set_ylim((-1, 2))
+    # plt.show()
+
     y_size, x_size = y_data.shape
     x_values = fftshift(fftfreq(x_size))
     y_values = fftshift(fftfreq(y_size))
@@ -137,49 +192,64 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, out_path):
         y_values
     )
     x_data = np.stack((x_freq, y_freq))
+    mask = ((np.linalg.norm(x_data, axis=0) <= MAX_FREQ_MASK * fc) *
+            (np.linalg.norm(x_data, axis=0) >= MIN_FREQ_MASK * fc))
     y_fit = func(x_data)
-    print(sci_spectrum.min(), sci_spectrum.max())
+    # print(sci_spectrum.min(), sci_spectrum.max())
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 12), sharex="col", sharey="row")
-    X_TICK_SIZE = 10
-    Y_TICK_SIZE = 10
-    GRID_LINEWIDTH = 0.5
 
     def generate_label(number):
         return "{:0.1f}".format(number)
 
-    ax1.set_title("Power spectrum")
-    ax1.imshow(y_data, vmin=min(y_data.min(), y_fit.min()), vmax=max(y_data.max(), y_fit.max()))
+    ax1.set_title(r"$|V(f)|^2$")
+    im = ax1.imshow(
+        y_data,
+        vmin=max(min((y_data * mask).min(), y_fit.min()), MIN_POWERSPECTRUM),
+        vmax=min(max((y_data * mask).max(), y_fit.max()), MAX_POWERSPECTRUM)
+    )
     ax1.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
     ax1.set_xticklabels(map(generate_label, x_values[0:x_size:x_size // X_TICK_SIZE]))
     ax1.set_yticks(np.arange(0, y_size, y_size // Y_TICK_SIZE))
     ax1.set_yticklabels(map(generate_label, y_values[0:y_size:y_size // Y_TICK_SIZE]))
+    fig.colorbar(im, ax=ax1)
     ax1.grid(linewidth=GRID_LINEWIDTH, linestyle='--')
 
-    ax2.set_title("Estimation")
-    ax2.imshow(y_fit, vmin=min(y_data.min(), y_fit.min()), vmax=max(y_data.max(), y_fit.max()))
+    ax2.set_title("$|V(f)|^2$ fitting")
+    im2 = ax2.imshow(
+        y_fit,
+        vmin=max(min((y_data * mask).min(), y_fit.min()), MIN_POWERSPECTRUM),
+        vmax=min(max((y_data * mask).max(), y_fit.max()), MAX_POWERSPECTRUM)
+    )
+    fig.colorbar(im2, ax=ax2)
     ax2.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
     ax2.set_xticklabels(map(generate_label, x_values[0:x_size:x_size // X_TICK_SIZE]))
     ax2.grid(linewidth=GRID_LINEWIDTH, linestyle='--')
     # ax2.set_yticks(np.arange(0, y_size, y_size // Y_TICK_SIZE))
     # ax2.set_yticklabels(map(generate_label, y_values[0:y_size:y_size // Y_TICK_SIZE]))
 
-    ax3.set_title("Scientific star")
-    ax3.imshow(sci_spectrum, vmax=5*10**9)
+    ax3.set_title(obj_sci)
+    # im3 = ax3.imshow(np.log(sci_spectrum), vmax=8)
+    im3 = ax3.imshow(sci_spectrum, vmax=MAX_SPECTRUM)
+    # fig.colorbar(im3, ax=ax3, label=r"$\log(\langle|\tilde{I}(f)|^2\rangle)$")
+    fig.colorbar(im3, ax=ax3)
     # ax3.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
     # ax3.set_xticklabels(map(generate_label, x_values[0:x_size:x_size // X_TICK_SIZE]))
     ax3.set_yticks(np.arange(0, y_size, y_size // Y_TICK_SIZE))
     ax3.set_yticklabels(map(generate_label, y_values[0:y_size:y_size // Y_TICK_SIZE]))
     ax3.grid(linewidth=GRID_LINEWIDTH, linestyle='--')
 
-    ax4.set_title("Known single star")
-    ax4.imshow(known_spectrum, vmax=5*10**9)
+    ax4.set_title(obj_kno)
+    # im4 = ax4.imshow(np.log(known_spectrum), vmax=8)
+    im4 = ax4.imshow(known_spectrum, vmax=MAX_SPECTRUM)
+    # fig.colorbar(im4, ax=ax4, label=r"$\log(\langle|\tilde{I}(f)|^2\rangle)$")
+    fig.colorbar(im4, ax=ax4)
     ax4.grid(linewidth=GRID_LINEWIDTH, linestyle='--')
     # ax4.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
     # ax4.set_xticklabels(map(generate_label, x_values[0:x_size:x_size // X_TICK_SIZE]))
     # ax4.set_yticks(np.arange(0, y_size, y_size // Y_TICK_SIZE))
     # ax4.set_yticklabels(map(generate_label, y_values[0:y_size:y_size // Y_TICK_SIZE]))
-    plt.savefig(out_path)
-    print("IMAGE SAVED {}".format(out_path))
+    plt.savefig(join("images", obj_sci + ".jpg"))
+    print("IMAGE SAVED {}".format(join("images", obj_sci + ".jpg")))
 
 
 def main():
@@ -202,11 +272,15 @@ def main():
     parser.add_argument("-fs", "--fieldsize", help="Field size, px", type=int)
     parser.add_argument('-l', '--leftangle', help="Coordinate", dest="leftangle", type=left_angle_parser, nargs=1)
     parser.add_argument("-f", "--focal", help="F, m", type=float)
-    parser.add_argument("-o", "--outimage", help="spectrum image path")
+    # parser.add_argument("-o", "--outimage", help="spectrum image path")
+    parser.add_argument("-p0r", "--p0radius", help="p0 mask radius", type=int)
+    parser.add_argument("-y", help="auto 'yes' in questions", action='store_true')
+    parser.add_argument("-n", help="auto 'no' in questions", action='store_true')
 
     args = parser.parse_args()
     print(args)
 
+    p0_mask_radius = args.p0radius
     pixel_size = args.pixsize
     field_size = args.fieldsize
     left_angle = args.leftangle[0]
@@ -218,7 +292,6 @@ def main():
     )
     master_bias, (sigma_ron, D, wavelength) = process_bias(pipeline, args)
     fc = 1.0 / (wavelength/D * F/pixel_size)
-    # print(fc)
     # fc = 0.45
 
     pipeline = Pipeline(
@@ -229,19 +302,27 @@ def main():
         # mean_frame
     )
 
-    sci_spectrum, ((time, latitude, longitude), (alpha, delta)) = process_sci_star(pipeline, args)
-    # print(sci_spectrum)
-    known_spectrum = process_known_star(pipeline, args)
-    # print(sci_spectrum / known_spectrum)
+    mean_spectrum_pipeline = Pipeline(
+        photon_pipe(PHOTON_NOISE_FREQ_MASK * fc)
+    )
 
+    sci_spectrum, ((time, latitude, longitude), (alpha, delta), obj_sci) = process_sci_star(
+        pipeline, mean_spectrum_pipeline, args
+    )
+    # print(sci_spectrum)
+    known_spectrum, obj_kno = process_known_star(pipeline, mean_spectrum_pipeline, args)
+    # print(sci_spectrum / known_spectrum)
+    print("\n" + "=" * 50)
+    print("FC = {}".format(fc))
     # <DEBUG>
-    values, errors = obtain_fit_parameters(sci_spectrum, known_spectrum, fc)
+    values, errors = obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius)
+    names = "dx", "dy", "epsilon", "A"
 
     print("FIT PARAMETERS")
     print("\n".join(
         map(
-            lambda tup: "{} +- {}".format(*tup),
-            zip(values, np.sqrt(np.diag(errors)))
+            lambda tup: "{} = {} +- {}".format(*tup),
+            zip(names, values, np.sqrt(np.diag(errors)))
         )
     ))
     dx, dy, epsilon, A = values
@@ -255,7 +336,8 @@ def main():
     plot_spectrum(
         sci_spectrum, known_spectrum,
         partial(model, dx=dx, dy=dy, epsilon=epsilon, A=A, fc=fc),
-        args.outimage
+        obj_sci, obj_kno,
+        fc
     )
     # azimuth, height = get_azimuth_height(time, alpha, delta, latitude, longitude)
     # psi = get_psi(alpha, delta, azimuth. azimuth, height)
