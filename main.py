@@ -24,9 +24,10 @@ from constants import MIN_POWERSPECTRUM
 from constants import MAX_POWERSPECTRUM
 from constants import MAX_SPECTRUM
 
-# from equatorial import get_psi
-# from equatorial import get_azimuth_height
-# from equatorial import transform_pixels_to_equatorial
+from equatorial import get_psi
+from equatorial import get_azimuth_height
+from equatorial import pixels_to_equatorial_jac
+from equatorial import pixels_to_equatorial_errors
 
 from fitting import fit
 from fitting import model
@@ -59,9 +60,12 @@ def process_bias(pipeline, args):
         master_bias = pipeline(bias)
         sigma_ron = full_fits[1].header["RONSIGMA"] / bias_fits.header["SNTVTY"]
         D = full_fits[1].header["APERTURE"]
-        wavelength = full_fits[1].header["FILTLAM"] * 10**-9  # todo
+        latitude = u.Quantity(full_fits[1].header["LATITUDE"], unit=u.deg).to(u.rad).value
+        longitude = u.Quantity(full_fits[1].header["LONGITUD"], unit=u.deg).to(u.rad).value
+        height = full_fits[1].header["ALTITUDE"]
+        # wavelength = full_fits[1].header["FILTLAM"] * 10**-9  # todo
         del bias
-    return master_bias, (sigma_ron, D, wavelength)
+    return master_bias, ((sigma_ron, D), (latitude, longitude, height))
 
 
 def process_spectrum(image_fits, batch_size, pipeline, filename, args):
@@ -100,7 +104,7 @@ def process_spectrum(image_fits, batch_size, pipeline, filename, args):
     return mean_spectrum
 
 
-def process_sci_star(pipeline, mean_spectrum_pipeline, args, batch_size=10):
+def process_sci_star(pipeline, args, batch_size=10):
     with fits.open(args.sci) as full_fits:
         sci_fits = full_fits[0]
         print("\n" + "=" * 50)
@@ -109,13 +113,15 @@ def process_sci_star(pipeline, mean_spectrum_pipeline, args, batch_size=10):
         print("HEADER")
         print(sci_fits.header.tostring(sep='\n'))
         time = Time(sci_fits.header["FRAME"], scale="utc")
-        latitude = u.Quantity(full_fits[1].header["LATITUDE"], unit=u.deg).to(u.rad).value
-        longitude = u.Quantity(full_fits[1].header["LONGITUD"], unit=u.deg).to(u.rad).value
         alpha = u.Quantity(full_fits[0].header["RA"], unit=u.deg).to(u.rad).value
         delta = u.Quantity(full_fits[0].header["DEC"], unit=u.deg).to(u.rad).value
         obj = sci_fits.header["OBJECT"]
+        wavelength = full_fits[1].header["FILTLAM"] * 10 ** -9
+        temp = full_fits[1].header["AMBTEMP"]
+        press = full_fits[1].header["AMBPRESS"]
+        humid = full_fits[1].header["AMBHUMID"]
         mean_spectrum = process_spectrum(sci_fits, batch_size, pipeline, join("spectra", obj + ".npz"), args)
-    return mean_spectrum_pipeline(mean_spectrum), ((time, latitude, longitude), (alpha, delta), obj)
+    return mean_spectrum, ((time, wavelength, temp, press, humid), (alpha, delta), obj)
 
 
 def process_known_star(pipeline, mean_spectrum_pipeline, args, batch_size=10):
@@ -143,6 +149,7 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     freqs = np.stack((x_freq, y_freq))
     mask = ((np.linalg.norm(freqs, axis=0) <= MAX_FREQ_MASK * fc) *
             (np.linalg.norm(freqs, axis=0) >= MIN_FREQ_MASK * fc))
+    # mask *= (np.abs(np.arange(-128, 128, 256)) > 10)[::, np.newaxis]
 
     inv = fftshift(ifft2(mask * y_data))
     # fig, ax = plt.subplots(1, 1, figsize=(12, 12))
@@ -154,8 +161,8 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     # plt.show()
     p0_mask = np.ones_like(inv)
     p0_mask[
-    p0_mask.shape[0] // 2 - p0_mask_radius:p0_mask.shape[0] // 2 + p0_mask_radius:,
-    p0_mask.shape[1] // 2 - p0_mask_radius:p0_mask.shape[1] // 2 + p0_mask_radius:
+        (p0_mask.shape[0] // 2 - p0_mask_radius):(p0_mask.shape[0] // 2 + p0_mask_radius):,
+        (p0_mask.shape[1] // 2 - p0_mask_radius):(p0_mask.shape[1] // 2 + p0_mask_radius):
     ] = 0
     dy, dx = np.unravel_index(np.argmax(inv * p0_mask, axis=None), inv.shape)
     dy -= inv.shape[0] // 2
@@ -176,7 +183,8 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     return values, errors
 
 
-def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc):
+def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc,
+                  minpowerspecturm, maxpowerspectrum, maxspectrum):
     y_data = (sci_spectrum / known_spectrum)
 
     # fig, ax = plt.subplots(1, 1, figsize=(12, 12))
@@ -195,6 +203,19 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc):
     mask = ((np.linalg.norm(x_data, axis=0) <= MAX_FREQ_MASK * fc) *
             (np.linalg.norm(x_data, axis=0) >= MIN_FREQ_MASK * fc))
     y_fit = func(x_data)
+
+    inv = fftshift(ifft2(mask * y_data))
+    fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    ax.set_title(obj_sci)
+    ax.set_xticks(np.arange(0, 256)[::10])
+    ax.set_xticklabels(np.arange(-128, 128)[::10])
+    ax.set_yticks(np.arange(0, 256)[::10])
+    ax.set_yticklabels(np.arange(-128, 128)[::10])
+    ax.imshow(np.abs(inv))
+    fname = join("images", obj_sci + "_invfft" + ".jpg")
+    plt.savefig(fname)
+    print("IMAGE SAVED {}".format(join(fname)))
+
     # print(sci_spectrum.min(), sci_spectrum.max())
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 12), sharex="col", sharey="row")
 
@@ -204,8 +225,8 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc):
     ax1.set_title(r"$|V(f)|^2$")
     im = ax1.imshow(
         y_data,
-        vmin=max(min((y_data * mask).min(), y_fit.min()), MIN_POWERSPECTRUM),
-        vmax=min(max((y_data * mask).max(), y_fit.max()), MAX_POWERSPECTRUM)
+        vmin=max(min((y_data * mask).min(), y_fit.min()), minpowerspecturm),
+        vmax=min(max((y_data * mask).max(), y_fit.max()), maxpowerspectrum)
     )
     ax1.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
     ax1.set_xticklabels(map(generate_label, x_values[0:x_size:x_size // X_TICK_SIZE]))
@@ -217,8 +238,8 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc):
     ax2.set_title("$|V(f)|^2$ fitting")
     im2 = ax2.imshow(
         y_fit,
-        vmin=max(min((y_data * mask).min(), y_fit.min()), MIN_POWERSPECTRUM),
-        vmax=min(max((y_data * mask).max(), y_fit.max()), MAX_POWERSPECTRUM)
+        vmin=max(min((y_data * mask).min(), y_fit.min()), minpowerspecturm),
+        vmax=min(max((y_data * mask).max(), y_fit.max()), maxpowerspectrum)
     )
     fig.colorbar(im2, ax=ax2)
     ax2.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
@@ -229,7 +250,7 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc):
 
     ax3.set_title(obj_sci)
     # im3 = ax3.imshow(np.log(sci_spectrum), vmax=8)
-    im3 = ax3.imshow(sci_spectrum, vmax=MAX_SPECTRUM)
+    im3 = ax3.imshow(sci_spectrum, vmax=maxspectrum)
     # fig.colorbar(im3, ax=ax3, label=r"$\log(\langle|\tilde{I}(f)|^2\rangle)$")
     fig.colorbar(im3, ax=ax3)
     # ax3.set_xticks(np.arange(0, x_size, x_size // X_TICK_SIZE))
@@ -276,6 +297,9 @@ def main():
     parser.add_argument("-p0r", "--p0radius", help="p0 mask radius", type=int)
     parser.add_argument("-y", help="auto 'yes' in questions", action='store_true')
     parser.add_argument("-n", help="auto 'no' in questions", action='store_true')
+    parser.add_argument("-mxps", help="max powerspecturm value", default=MAX_POWERSPECTRUM, type=float)
+    parser.add_argument("-mnps", help="min powerspecturm value", default=MIN_POWERSPECTRUM, type=float)
+    parser.add_argument("-ms", help="max specturm value", default=MAX_SPECTRUM, type=float)
 
     args = parser.parse_args()
     print(args)
@@ -290,8 +314,7 @@ def main():
         mean_frame,
         crop_image_pipe(left_angle, shape)
     )
-    master_bias, (sigma_ron, D, wavelength) = process_bias(pipeline, args)
-    fc = 1.0 / (wavelength/D * F/pixel_size)
+    master_bias, ((sigma_ron, D), (latitude, longitude, height)) = process_bias(pipeline, args)
     # fc = 0.45
 
     pipeline = Pipeline(
@@ -301,14 +324,16 @@ def main():
         fft_pipe(30, 1),
         # mean_frame
     )
-
+    mean_spectrum, ((time, wavelength, temp, press, humid), (alpha, delta), obj_sci) = process_sci_star(
+        pipeline, args
+    )
+    # fc = 1.0 / (wavelength / D * F / pixel_size)
+    s = pixel_size / F
+    fc = D/wavelength * s
     mean_spectrum_pipeline = Pipeline(
         photon_pipe(PHOTON_NOISE_FREQ_MASK * fc)
     )
-
-    sci_spectrum, ((time, latitude, longitude), (alpha, delta), obj_sci) = process_sci_star(
-        pipeline, mean_spectrum_pipeline, args
-    )
+    sci_spectrum = np.asarray(mean_spectrum_pipeline(mean_spectrum))
     # print(sci_spectrum)
     known_spectrum, obj_kno = process_known_star(pipeline, mean_spectrum_pipeline, args)
     # print(sci_spectrum / known_spectrum)
@@ -326,24 +351,31 @@ def main():
         )
     ))
     dx, dy, epsilon, A = values
-    xy = np.array([dx, dy])[::, np.newaxis]
-    # dx = 1
-    # dy = 1
-    # epsilon = 1
-    # A = 10
-    # </DEBUG>
+    xyz = np.zeros(4)
+    xyz[:2:] = dx, dy
+    xyz = xyz[::, np.newaxis]
 
     plot_spectrum(
         sci_spectrum, known_spectrum,
         partial(model, dx=dx, dy=dy, epsilon=epsilon, A=A, fc=fc),
         obj_sci, obj_kno,
-        fc
+        fc,
+        args.mnps, args.mxps, args.ms
     )
-    # azimuth, height = get_azimuth_height(time, alpha, delta, latitude, longitude)
-    # psi = get_psi(alpha, delta, azimuth. azimuth, height)
-    # s = 1.0
+    azimuth, h = get_azimuth_height(time, alpha, delta, latitude, longitude, height, temp, press, humid, wavelength)
+    psi = get_psi(azimuth, h, latitude)
     # todo
-    # coordinates = transform_pixels_to_equatorial(s, xy, height, psi, epsilon)
+    jac = pixels_to_equatorial_jac(s, psi - h + np.pi, alpha, delta)
+    (da,), (dd,) = jac @ xyz
+    print("s", s)
+    print("delta = ", delta)
+    edx, edy, *_ = np.sqrt(np.diag(errors))
+    eda, edd = pixels_to_equatorial_errors(edx, edy, jac)
+    print("da = {} +- {}\ndd = {} +- {}".format(da * 206265, eda * 206265, dd * 206265, edd * 206265))
+    print("sep", np.sqrt((da * np.cos(delta))**2 + dd**2) * 206265)
+    print("sep2", s * np.sqrt(dx**2 + dy**2) * 206265)
+    print("h, psi", h, psi)
+    print("jac", pixels_to_equatorial_jac(s, psi - h + np.pi, alpha, delta))
     # print("EQUATORIAL COORDINATES")
     # print(coordinates)
 
