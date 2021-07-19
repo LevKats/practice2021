@@ -53,7 +53,9 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     freqs = np.stack((x_freq, y_freq))
     mask = ((np.linalg.norm(freqs, axis=0) <= MAX_FREQ_MASK * fc) *
             (np.linalg.norm(freqs, axis=0) >= MIN_FREQ_MASK * fc))
-    # mask *= (np.abs(np.arange(-128, 128, 256)) > 10)[::, np.newaxis]
+    # mask *= np.abs(freqs[1, ::, ::]) >= 2 * MIN_FREQ_MASK * fc
+    # for line in mask:
+    #     print("".join(map(str, np.asarray(line, dtype=int))))
 
     inv = fftshift(ifft2(mask * y_data))
     # fig, ax = plt.subplots(1, 1, figsize=(12, 12))
@@ -68,6 +70,10 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
         (p0_mask.shape[0] // 2 - p0_mask_radius):(p0_mask.shape[0] // 2 + p0_mask_radius):,
         (p0_mask.shape[1] // 2 - p0_mask_radius):(p0_mask.shape[1] // 2 + p0_mask_radius):
     ] = 0
+    # p0_mask[
+    #     ::,
+    #     (p0_mask.shape[1] // 2 - p0_mask_radius):(p0_mask.shape[1] // 2 + p0_mask_radius):
+    # ] = 0
     dy, dx = np.unravel_index(np.argmax(inv * p0_mask, axis=None), inv.shape)
     dy -= inv.shape[0] // 2
     dx -= inv.shape[1] // 2

@@ -11,6 +11,8 @@ from tqdm import tqdm
 
 from preprocessing import mean_frame
 
+from constants import SKIP
+
 
 def process_bias(pipeline, args):
     with fits.open(args.bias) as full_fits:
@@ -23,15 +25,37 @@ def process_bias(pipeline, args):
         # print(bias_fits.info())
         print("HEADER")
         print(bias_fits.header.tostring(sep='\n'))
-        bias = bias_fits.data
-        master_bias = pipeline(bias)
+
+        filename = join("spectra", "bias" + full_fits[0].header["FRAME"] + ".npz")
+        if exists(filename):
+            if args.y:
+                st = "yes"
+            elif args.n:
+                st = "no"
+            else:
+                st = input("{} found. Load? yes/no (delault yes) ".format(filename))
+            if st == "yes" or st == "":
+                with np.load(filename) as data:
+                    master_bias = data["master_bias"]
+        else:
+            bias = bias_fits.data
+            master_bias = pipeline(bias)
+            del bias
+            if args.y:
+                st = "yes"
+            elif args.n:
+                st = "no"
+            else:
+                st = input("save bias to {}? yes/no (default yes) ".format(filename))
+            if st == "yes" or st == "":
+                np.savez(filename, master_bias=master_bias)
+
         sigma_ron = full_fits[1].header["RONSIGMA"] / bias_fits.header["SNTVTY"]
         D = full_fits[1].header["APERTURE"]
         latitude = u.Quantity(full_fits[1].header["LATITUDE"], unit=u.deg).to(u.rad).value
         longitude = u.Quantity(full_fits[1].header["LONGITUD"], unit=u.deg).to(u.rad).value
         height = full_fits[1].header["ALTITUDE"]
         # wavelength = full_fits[1].header["FILTLAM"] * 10**-9  # todo
-        del bias
     return master_bias, ((sigma_ron, D), (latitude, longitude, height))
 
 
@@ -46,7 +70,7 @@ def process_spectrum(image_fits, batch_size, pipeline, filename, args):
         if st == "yes" or st == "":
             with np.load(filename) as data:
                 return data["spectrum"]
-    frame = image_fits.data
+    frame = image_fits.data[SKIP::, ::, ::]
     spectrum = None
     frame_count = frame.shape[0]
     print("process spectrum...")

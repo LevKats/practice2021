@@ -1,5 +1,9 @@
 import argparse
 
+from constants import MAX_POWERSPECTRUM
+from constants import MIN_POWERSPECTRUM
+from constants import MAX_SPECTRUM
+
 
 def get_args():
     # if len(argv) < 4:
