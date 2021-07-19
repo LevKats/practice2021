@@ -52,7 +52,7 @@ def get_azimuth_height(
     coord = SkyCoord(ra=alpha * u.rad, dec=delta * u.rad)
     # print(coord)
     result = coord.transform_to(altaz)
-    # print(result)
+    print(result)
     return result.az.radian - np.pi, result.alt.radian
 
 
@@ -83,13 +83,15 @@ def get_transform_matrix(theta, alpha, delta):
 
 def pixels_to_equatorial_jac(s, theta, alpha, delta):
     (x,), (y,), (z,) = get_xyz(alpha, delta)
-    # print(x, y, z)
-    sin = y / np.sqrt(1 - z**2)
-    sgn = int(sin >= 0) - int(sin < 0)
-    end_jac = np.array([
-        [-sgn / np.sqrt(1 - z**2 - x**2), 0, - sgn*x*z / ((1 - z**2)*np.sqrt(1 - z**2 - x**2)), 0],
-        [0, 0, 1/np.sqrt(1 - z**2), 0],
+    r = np.sqrt(x**2 + y**2 + z**2)
+    cos, sin = np.cos, np.sin
+    rad_xyz_jac = np.array([
+        [-r * cos(delta) * sin(alpha), -r * sin(delta) * cos(alpha), cos(delta) * cos(alpha)],
+        [r * cos(delta) * cos(alpha), -r * sin(delta) * sin(alpha), cos(delta) * sin(alpha)],
+        [0, r * cos(delta), sin(delta)]
     ])
+    end_jac = np.zeros((2, 4))
+    end_jac[::, :3:] = np.linalg.inv(rad_xyz_jac)[:2:, ::]
     # print(get_transform_matrix(theta, alpha, delta))
     # print(end_jac)
     return (end_jac @ get_transform_matrix(theta, alpha, delta)) * s
