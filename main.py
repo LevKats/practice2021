@@ -29,8 +29,17 @@ from input_parameters import get_args
 
 from functools import partial
 
+from os import mkdir
+from os.path import exists
+
 
 def main():
+    if not exists("spectra/"):
+        mkdir("spectra")
+        print("spectra/ created/")
+    if not exists("images/"):
+        mkdir("images")
+        print("images/ created")
     args = get_args()
     print(args)
 
