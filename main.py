@@ -12,9 +12,11 @@ from preprocessing import mean_frame
 from constants import PHOTON_NOISE_FREQ_MASK
 
 from equatorial import get_psi
+from equatorial import get_psi2
 from equatorial import get_azimuth_height
 from equatorial import pixels_to_equatorial_jac
 from equatorial import pixels_to_equatorial_errors
+from equatorial import pixels_to_pa
 
 from fitting import obtain_fit_parameters
 from fitting import model
@@ -77,7 +79,7 @@ def main():
     known_spectrum, obj_kno = process_known_star(pipeline, mean_spectrum_pipeline, args)
     # print(sci_spectrum / known_spectrum)
     print("\n" + "=" * 50)
-    print("FC = {}".format(fc))
+    print("FC = {} px^-1".format(fc))
     # <DEBUG>
     values, errors = obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius)
     names = "dx", "dy", "epsilon", "A"
@@ -103,18 +105,21 @@ def main():
     )
     azimuth, h = get_azimuth_height(time, alpha, delta, latitude, longitude, height, temp, press, humid, wavelength)
     psi = get_psi(azimuth, h, latitude)
+    psi2 = get_psi2(delta, azimuth, h, latitude)
     # todo
     jac = pixels_to_equatorial_jac(s, psi - h + np.pi, alpha, delta)
     (da,), (dd,) = jac @ xyz
-    print("s", s)
-    print("delta = ", delta)
+    print("s = {} rad/px".format(s))
+    print("delta = {} rad".format(delta))
     edx, edy, *_ = np.sqrt(np.diag(errors))
     eda, edd = pixels_to_equatorial_errors(edx, edy, jac)
     print("da = {} +- {}\ndd = {} +- {}".format(da * 206265, eda * 206265, dd * 206265, edd * 206265))
-    print("sep", np.sqrt((da * np.cos(delta))**2 + dd**2) * 206265)
-    print("sep2", s * np.sqrt(dx**2 + dy**2) * 206265)
-    print("h, psi", h, psi)
-    print("jac", pixels_to_equatorial_jac(s, psi - h + np.pi, alpha, delta))
+    print("sep = {} arcsec".format(np.sqrt((da * np.cos(delta))**2 + dd**2) * 206265))
+    print("sep2 = {} arcsec (s * |d|)".format(s * np.sqrt(dx**2 + dy**2) * 206265))
+    print("h = {} rad\npsi = {} rad".format(h, psi))
+    print("pSi2 = {} rad".format(psi2))
+    print("pa = {} deg".format(pixels_to_pa(dx, dy, psi - h + np.pi) / 3600 * 206265))
+    # print("jac", pixels_to_equatorial_jac(s, psi - h + np.pi, alpha, delta))
     # print("EQUATORIAL COORDINATES")
     # print(coordinates)
 

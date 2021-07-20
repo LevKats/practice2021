@@ -42,6 +42,11 @@ def fit(x_data: np.array, y_data: np.array, func: Callable[[np.array, ...], np.a
     return curve_fit(func, x_data, y_data, **kwargs)
 
 
+def fitting_mask(freqs, minfreq, maxfreq):
+    return ((np.linalg.norm(freqs, axis=0) <= maxfreq) *
+            (np.linalg.norm(freqs, axis=0) >= minfreq))
+
+
 def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     y_data = sci_spectrum / known_spectrum
     y_size, x_size = y_data.shape
@@ -51,8 +56,9 @@ def obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius):
     )
     x_data = np.vstack((x_freq.flatten(), y_freq.flatten()))
     freqs = np.stack((x_freq, y_freq))
-    mask = ((np.linalg.norm(freqs, axis=0) <= MAX_FREQ_MASK * fc) *
-            (np.linalg.norm(freqs, axis=0) >= MIN_FREQ_MASK * fc))
+    mask = fitting_mask(freqs, MIN_FREQ_MASK *fc, MAX_FREQ_MASK * fc)
+    # mask = ((np.linalg.norm(freqs, axis=0) <= MAX_FREQ_MASK * fc) *
+    #         (np.linalg.norm(freqs, axis=0) >= MIN_FREQ_MASK * fc))
     # mask *= np.abs(freqs[1, ::, ::]) >= 2 * MIN_FREQ_MASK * fc
     # for line in mask:
     #     print("".join(map(str, np.asarray(line, dtype=int))))

@@ -64,6 +64,7 @@ def get_psi(azimuth, height, latitude):
     :return: угол psi
     """
     rpn = get_xyz(np.pi, latitude, True)
+    # rpn = get_xyz(np.pi, 0, True)
     rz = get_xyz(0, np.pi/2, True)
     tranform_matrix = shift([0, 0, 1]) @ rotate_y(np.pi/2 - height) @ rotate_z(-azimuth)
     rpn2 = (tranform_matrix @ get_aug_vec(rpn)).flatten()[:3:]
@@ -75,6 +76,31 @@ def get_psi(azimuth, height, latitude):
     sinq = np.cross(rpn3, rz3)[2]
     acosq = np.arccos((rpn3 * rz3).sum())
     return (sinq < 0) * acosq + (sinq >= 0) * (2*np.pi - acosq)
+
+
+def get_hour_angle(azimuth, h, delta, latitude):
+    cos = np.cos
+    sin = np.sin
+    z = np.pi/2 - h
+    cost = (cos(z)*cos(latitude) + sin(z)*sin(latitude)*cos(azimuth)) / cos(delta)
+    sint = sin(z) * sin(azimuth) / cos(delta)
+    return np.arccos(cost) * (sint >= 0) + (2*np.pi - np.arccos(cost)) * (sint < 0)
+
+
+def get_psi2(delta, azimuth, height, latitude):
+    t = get_hour_angle(azimuth, height, delta, latitude)
+    cos = np.cos
+    sin = np.sin
+    tan = np.tan
+    u = sin(t) / (cos(delta)*tan(latitude) - sin(delta)*cos(t))
+    if azimuth < np.pi and u >= 0:
+        return np.arctan(u)
+    if azimuth < np.pi and u < 0:
+        return np.arctan(u) + np.pi
+    if azimuth >= np.pi and u >= 0:
+        return np.arctan(u) + np.pi
+    if azimuth >= np.pi and u < 0:
+        return np.arctan(u) + 2*np.pi
 
 
 def get_transform_matrix(theta, alpha, delta):
@@ -99,3 +125,10 @@ def pixels_to_equatorial_jac(s, theta, alpha, delta):
 
 def pixels_to_equatorial_errors(edx, edy, jac):
     return np.sqrt((jac[::, :2:]**2 * np.array([edx, edy])[np.newaxis, ::]**2).sum(axis=1))
+
+
+def pixels_to_pa(dx, dy, theta):
+    vec = (rotate_z(-theta) @ flip(1) @ [dx, dy, 0, 1])[:2:]
+    dx2, dy2 = vec / np.linalg.norm(vec)
+    print(dx2, dy2)
+    return np.arccos(dx2)*(dy2 >= 0) + (2 * np.pi - np.arccos(dx2))*(dy2 < 0)
