@@ -3,6 +3,9 @@ import argparse
 from constants import MAX_POWERSPECTRUM
 from constants import MIN_POWERSPECTRUM
 from constants import MAX_SPECTRUM
+from constants import MASK_HORIZONTAL_WINDOW_SIZE
+from constants import MIN_FREQ_MASK
+from constants import MAX_FREQ_MASK
 
 
 def get_args():
@@ -35,5 +38,15 @@ def get_args():
     parser.add_argument("-mxps", help="max powerspecturm value, optional", default=MAX_POWERSPECTRUM, type=float)
     parser.add_argument("-mnps", help="min powerspecturm value, optional", default=MIN_POWERSPECTRUM, type=float)
     parser.add_argument("-ms", help="max specturm value, optional", default=MAX_SPECTRUM, type=float)
+    parser.add_argument("-ws", help="kaiser window size", default=MASK_HORIZONTAL_WINDOW_SIZE, type=int)
+    parser.add_argument(
+        "-mnfmsk", help="min freq mask (defalt {})".format(MIN_FREQ_MASK), default=MIN_FREQ_MASK, type=float
+    )
+    parser.add_argument(
+        "-mxfmsk", help="max freq mask (defalt {})".format(MAX_FREQ_MASK), default=MAX_FREQ_MASK, type=float
+    )
+    parser.add_argument(
+        '-p0', help="p0 dx,dy", dest="p0", type=left_angle_parser, nargs=1, default=(None,)
+    )
 
     return parser.parse_args()

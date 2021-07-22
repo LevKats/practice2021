@@ -81,7 +81,10 @@ def main():
     print("\n" + "=" * 50)
     print("FC = {} px^-1".format(fc))
     # <DEBUG>
-    values, errors = obtain_fit_parameters(sci_spectrum, known_spectrum, fc, p0_mask_radius)
+    values, errors = obtain_fit_parameters(
+        sci_spectrum, known_spectrum, fc, p0_mask_radius, args.ws, args.mnfmsk, args.mxfmsk,
+        args.p0[0]
+    )
     names = "dx", "dy", "epsilon", "A"
 
     print("FIT PARAMETERS")
@@ -101,7 +104,7 @@ def main():
         partial(model, dx=dx, dy=dy, epsilon=epsilon, A=A, fc=fc),
         obj_sci, obj_kno,
         fc,
-        args.mnps, args.mxps, args.ms
+        args.mnps, args.mxps, args.ms, args.ws, args.mnfmsk, args.mxfmsk
     )
     azimuth, h = get_azimuth_height(time, alpha, delta, latitude, longitude, height, temp, press, humid, wavelength)
     psi = get_psi(azimuth, h, latitude)
@@ -118,7 +121,14 @@ def main():
     print("sep2 = {} arcsec (s * |d|)".format(s * np.sqrt(dx**2 + dy**2) * 206265))
     print("h = {} rad\npsi = {} rad".format(h, psi))
     print("pSi2 = {} rad".format(psi2))
-    print("pa = {} deg".format(pixels_to_pa(dx, dy, psi - h + np.pi) / 3600 * 206265))
+
+    def printpa(pa):
+        if pa >= 180:
+            return pa - 180, pa
+        else:
+            return pa, pa + 180
+
+    print("pa = {} deg".format(printpa(pixels_to_pa(dx, dy, psi - h + np.pi) / 3600 * 206265)))
     # print("jac", pixels_to_equatorial_jac(s, psi - h + np.pi, alpha, delta))
     # print("EQUATORIAL COORDINATES")
     # print(coordinates)

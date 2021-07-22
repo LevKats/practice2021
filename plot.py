@@ -17,10 +17,11 @@ from constants import TICKS_FONT_SIZE
 from constants import TITLES_FONT_SIZE
 
 from fitting import fitting_mask
+from fitting import plotting_mask
 
 
 def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc,
-                  minpowerspecturm, maxpowerspectrum, maxspectrum):
+                  minpowerspecturm, maxpowerspectrum, maxspectrum, window_size, mnfmsk, mxfmsk):
     y_data = (sci_spectrum / known_spectrum)
 
     # fig, ax = plt.subplots(1, 1, figsize=(12, 12))
@@ -35,13 +36,22 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc,
         x_values,
         y_values
     )
-    x_data = np.stack((x_freq, y_freq))
-    mask = fitting_mask(x_data, MIN_FREQ_MASK * fc, MAX_FREQ_MASK * fc)
+    mask = fitting_mask(np.stack((x_freq, y_freq)), mnfmsk * fc, mxfmsk * fc, window_size)
+    # mask = np.ones_like(x_freq)
+    # x_data = np.stack((x_freq, y_freq, mask))
     # mask = ((np.linalg.norm(x_data, axis=0) <= MAX_FREQ_MASK * fc) *
     #         (np.linalg.norm(x_data, axis=0) >= MIN_FREQ_MASK * fc))
-    y_fit = func(x_data)
 
     inv = fftshift(ifft2(mask * y_data))
+    y_fit = func(
+        np.stack((
+            x_freq, y_freq,
+            plotting_mask(
+                np.stack((x_freq, y_freq)),
+                mnfmsk * fc, mxfmsk * fc
+            )
+        ))
+    )
     fig, ax = plt.subplots(1, 1, figsize=(12, 12))
     ax.set_title(obj_sci, fontsize=TITLES_FONT_SIZE)
     ax.set_xticks(np.arange(0, 256)[::10])
@@ -50,6 +60,17 @@ def plot_spectrum(sci_spectrum, known_spectrum, func, obj_sci, obj_kno, fc,
     ax.set_yticklabels(np.arange(-128, 128)[::10], fontsize=TICKS_FONT_SIZE)
     ax.imshow(np.abs(inv))
     fname = join("images", obj_sci + "_invfft" + ".jpg")
+    plt.savefig(fname)
+    print("IMAGE SAVED {}".format(join(fname)))
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    ax.set_title(obj_sci + " MASK", fontsize=TITLES_FONT_SIZE)
+    ax.set_xticks(np.arange(0, 256)[::10])
+    ax.set_xticklabels(np.arange(-128, 128)[::10], fontsize=TICKS_FONT_SIZE, rotation='vertical')
+    ax.set_yticks(np.arange(0, 256)[::10])
+    ax.set_yticklabels(np.arange(-128, 128)[::10], fontsize=TICKS_FONT_SIZE)
+    ax.imshow(mask)
+    fname = join("images", obj_sci + "_mask.jpg")
     plt.savefig(fname)
     print("IMAGE SAVED {}".format(join(fname)))
 
